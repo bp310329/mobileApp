@@ -1,6 +1,8 @@
 package com.example.mobileapp
 
+import android.graphics.Rect
 import android.os.Bundle
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -45,18 +47,25 @@ class MainActivity : AppCompatActivity() {
 
     /** The map stays edge-to-edge; only the overlay controls are moved away from the system bars. */
     private fun applyWindowInsets(topBar: MaterialCardView, bottomButton: ExtendedFloatingActionButton) {
-        val baseTopMargin = (topBar.layoutParams as ViewGroup.MarginLayoutParams).topMargin
         val baseBottomMargin = (bottomButton.layoutParams as ViewGroup.MarginLayoutParams).bottomMargin
+        val topBarContent = findViewById<View>(R.id.bluetoothStatusContent)
+        val contentPadding = Rect(
+            topBarContent.paddingLeft, topBarContent.paddingTop,
+            topBarContent.paddingRight, topBarContent.paddingBottom
+        )
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { _, insets ->
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            topBar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                topMargin = baseTopMargin + bars.top
-                leftMargin = leftMargin.coerceAtLeast(bars.left)
-                rightMargin = rightMargin.coerceAtLeast(bars.right)
-            }
+            // The bar's background reaches the screen edges (including under the status bar);
+            // only its content is padded away from the system bars.
+            topBarContent.setPadding(
+                contentPadding.left + bars.left,
+                contentPadding.top + bars.top,
+                contentPadding.right + bars.right,
+                contentPadding.bottom
+            )
             bottomButton.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                 bottomMargin = baseBottomMargin + bars.bottom
             }

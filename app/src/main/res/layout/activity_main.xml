@@ -11,21 +11,23 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Bluetooth connection status bar (placeholder button) -->
+    <!-- Bluetooth connection status bar (placeholder button).
+         Full width, square corners; extends under the system status bar
+         (top padding is added from window insets in MainActivity). -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/bluetoothStatusBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:layout_marginHorizontal="12dp"
-        android:layout_marginTop="8dp"
         android:clickable="true"
-        android:focusable="true"
         android:contentDescription="@string/bluetooth_status_description"
-        app:cardCornerRadius="24dp"
-        app:cardElevation="6dp">
+        android:focusable="true"
+        app:cardCornerRadius="0dp"
+        app:cardElevation="0dp"
+        app:strokeWidth="0dp">
 
         <LinearLayout
+            android:id="@+id/bluetoothStatusContent"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
