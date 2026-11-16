@@ -10,23 +10,19 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
+import com.example.mobileapp.map.AppMapView
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-import org.maplibre.android.MapLibre
-import org.maplibre.android.camera.CameraPosition
-import org.maplibre.android.geometry.LatLng
-import org.maplibre.android.maps.MapView
-import org.maplibre.android.maps.Style
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var mapView: MapView
+    private lateinit var mapView: AppMapView
+//    private val locationPermissionRequest = registerForActivityResult(
+//        ActivityResultContracts.RequestMultiplePermissions()
+//    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // MapLibre must be initialised before the MapView is inflated.
-        MapLibre.getInstance(this)
-
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
 
@@ -34,7 +30,8 @@ class MainActivity : AppCompatActivity() {
         val createRouteButton = findViewById<ExtendedFloatingActionButton>(R.id.createRouteButton)
 
         applyWindowInsets(statusBar, createRouteButton)
-        setupMap(savedInstanceState)
+        mapView = findViewById(R.id.mapView)
+        mapView.attach(this, savedInstanceState)
 
         // Placeholders – real behaviour comes later.
         statusBar.setOnClickListener {
@@ -73,59 +70,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupMap(savedInstanceState: Bundle?) {
-        mapView = findViewById(R.id.mapView)
-        mapView.onCreate(savedInstanceState)
-
-        mapView.getMapAsync { map ->
-            map.setStyle(Style.Builder().fromUri(MAPTOOLKIT_STYLE_URL))
-            map.cameraPosition = CameraPosition.Builder()
-                .target(DEFAULT_CENTER)
-                .zoom(DEFAULT_ZOOM)
-                .build()
-        }
-    }
-
-    // MapView must follow the activity lifecycle.
-    override fun onStart() {
-        super.onStart()
-        mapView.onStart()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        mapView.onResume()
-    }
-
-    override fun onPause() {
-        mapView.onPause()
-        super.onPause()
-    }
-
-    override fun onStop() {
-        mapView.onStop()
-        super.onStop()
-    }
-
-    override fun onLowMemory() {
-        super.onLowMemory()
-        mapView.onLowMemory()
-    }
-
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         mapView.onSaveInstanceState(outState)
-    }
-
-    override fun onDestroy() {
-        mapView.onDestroy()
-        super.onDestroy()
-    }
-
-    private companion object {
-        const val MAPTOOLKIT_STYLE_URL = "https://styles.maptoolkit.org/summer.json"
-
-        val DEFAULT_CENTER = LatLng(52.2297, 21.0122) // Warsaw
-        const val DEFAULT_ZOOM = 11.0
     }
 }

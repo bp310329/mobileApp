@@ -5,8 +5,8 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Full-screen map (MapLibre + Maptoolkit tiles) -->
-    <org.maplibre.android.maps.MapView
+    <!-- Full-screen map (MapLibre + Maptoolkit tiles), provided by the :map module -->
+    <com.example.mobileapp.map.AppMapView
         android:id="@+id/mapView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
