@@ -30,7 +30,8 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.common)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
     api(libs.maplibre.android.sdk)
     implementation(libs.play.services.location)
+    implementation(libs.kotlinx.coroutines.play.services)
 }

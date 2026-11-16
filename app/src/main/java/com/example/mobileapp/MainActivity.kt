@@ -1,25 +1,38 @@
 package com.example.mobileapp
 
+import android.Manifest
 import android.graphics.Rect
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import com.example.mobileapp.map.AppMapView
+import com.example.mobileapp.map.LocationProvider
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var mapView: AppMapView
-//    private val locationPermissionRequest = registerForActivityResult(
-//        ActivityResultContracts.RequestMultiplePermissions()
-//    )
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                      permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+
+        if (granted) {
+            mapView.enableUserLocation()
+        } else {
+            Toast.makeText(this, R.string.location_permission_denied, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,6 +45,7 @@ class MainActivity : AppCompatActivity() {
         applyWindowInsets(statusBar, createRouteButton)
         mapView = findViewById(R.id.mapView)
         mapView.attach(this, savedInstanceState)
+        startUserLocation()
 
         // Placeholders – real behaviour comes later.
         statusBar.setOnClickListener {
@@ -39,6 +53,13 @@ class MainActivity : AppCompatActivity() {
         }
         createRouteButton.setOnClickListener {
             Toast.makeText(this, R.string.create_route_placeholder_toast, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Shows the live position right away if permitted, otherwise asks for location permission. */
+    private fun startUserLocation() {
+        if (!mapView.enableUserLocation()) {
+            requestPermissionLauncher.launch(LocationProvider.REQUIRED_PERMISSIONS)
         }
     }
 
