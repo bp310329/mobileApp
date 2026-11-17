@@ -2,15 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission
-        android:name="android.permission.BLUETOOTH"
-        android:maxSdkVersion="30" />
-    <uses-permission
-        android:name="android.permission.BLUETOOTH_ADMIN"
-        android:maxSdkVersion="30" />
-    <!-- Android 12+: needed to list paired devices and open RFCOMM sockets -->
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-
+    <!-- Bluetooth permissions are declared by the :bluetooth module. -->
     <uses-feature
         android:name="android.hardware.bluetooth"
         android:required="true" />

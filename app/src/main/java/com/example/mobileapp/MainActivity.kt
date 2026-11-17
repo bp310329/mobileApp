@@ -1,26 +1,40 @@
 package com.example.mobileapp
 
 import android.Manifest
+import android.content.res.ColorStateList
 import android.graphics.Rect
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.example.mobileapp.bluetooth.BluetoothAccess
+import com.example.mobileapp.bluetooth.BluetoothConnectionManager
 import com.example.mobileapp.map.AppMapView
 import com.example.mobileapp.map.LocationProvider
+import com.example.mobileapp.ui.bluetooth.BluetoothDevicesSheet
+import com.example.mobileapp.ui.bluetooth.BluetoothViewModel
 import com.google.android.material.card.MaterialCardView
-import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var mapView: AppMapView
+    private val bluetoothViewModel: BluetoothViewModel by viewModels()
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -33,6 +47,26 @@ class MainActivity : AppCompatActivity() {
             mapView.followUser()
         } else {
             Toast.makeText(this, R.string.location_permission_denied, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private val bluetoothPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        if (results.values.all { it }) {
+            openBluetoothDevices()
+        } else {
+            Toast.makeText(this, R.string.bluetooth_permission_denied, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private val enableBluetoothLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (BluetoothAccess.isEnabled(this)) {
+            openBluetoothDevices()
+        } else {
+            Toast.makeText(this, R.string.bluetooth_disabled, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -50,10 +84,9 @@ class MainActivity : AppCompatActivity() {
         mapView.attach(this, savedInstanceState)
         startUserLocation()
 
-        // Placeholders – real behaviour comes later.
-        statusBar.setOnClickListener {
-            Toast.makeText(this, R.string.bluetooth_placeholder_toast, Toast.LENGTH_SHORT).show()
-        }
+        statusBar.setOnClickListener { openBluetoothDevices() }
+        observeBluetoothStatus()
+
         centerButton.setOnClickListener {
             if (mapView.enableUserLocation()) {
                 mapView.followUser()
@@ -61,8 +94,63 @@ class MainActivity : AppCompatActivity() {
                 requestPermissionLauncher.launch(LocationProvider.REQUIRED_PERMISSIONS)
             }
         }
+        // Placeholder – real behaviour comes later.
         createRouteButton.setOnClickListener {
             Toast.makeText(this, R.string.create_route_placeholder_toast, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Opens the device picker, first walking through whatever is missing:
+     * Bluetooth permissions, then turning Bluetooth on.
+     */
+    private fun openBluetoothDevices() {
+        when {
+            !BluetoothAccess.isSupported(this) ->
+                Toast.makeText(this, R.string.bluetooth_not_supported, Toast.LENGTH_SHORT).show()
+            !BluetoothAccess.hasPermissions(this) ->
+                bluetoothPermissionLauncher.launch(BluetoothAccess.REQUIRED_PERMISSIONS)
+            !BluetoothAccess.isEnabled(this) ->
+                enableBluetoothLauncher.launch(BluetoothAccess.enableIntent())
+            supportFragmentManager.findFragmentByTag(BluetoothDevicesSheet.TAG) == null ->
+                BluetoothDevicesSheet().show(supportFragmentManager, BluetoothDevicesSheet.TAG)
+        }
+    }
+
+    /** Mirrors the connection state in the top bar: text and coloured status dot. */
+    private fun observeBluetoothStatus() {
+        val statusText = findViewById<TextView>(R.id.bluetoothStatusText)
+        val statusDot = findViewById<View>(R.id.bluetoothStatusDot)
+        val icon = findViewById<ImageView>(R.id.bluetoothIcon)
+        val idleIconTint = icon.imageTintList
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                bluetoothViewModel.connectionState.collect { state ->
+                    val (text, dotColor) = when (state) {
+                        BluetoothConnectionManager.State.Disconnected ->
+                            getString(R.string.bluetooth_status_disconnected) to
+                                R.color.status_disconnected
+                        is BluetoothConnectionManager.State.Connecting ->
+                            getString(R.string.bluetooth_status_connecting, state.device.displayName) to
+                                R.color.status_connecting
+                        is BluetoothConnectionManager.State.Connected ->
+                            getString(R.string.bluetooth_status_connected, state.device.displayName) to
+                                R.color.status_connected
+                        is BluetoothConnectionManager.State.Failed ->
+                            getString(R.string.bluetooth_status_failed, state.device.displayName) to
+                                R.color.status_disconnected
+                    }
+                    statusText.text = text
+                    statusDot.backgroundTintList =
+                        ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, dotColor))
+                    icon.imageTintList = if (state is BluetoothConnectionManager.State.Connected) {
+                        ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, dotColor))
+                    } else {
+                        idleIconTint
+                    }
+                }
+            }
         }
     }
 
