@@ -6,5 +6,6 @@
     <string name="bluetooth_placeholder_toast">Bluetooth connection management – coming soon</string>
     <string name="create_route">Create route</string>
     <string name="create_route_placeholder_toast">Route creation – coming soon</string>
+    <string name="center_on_location">Center on my location</string>
     <string name="location_permission_denied">Location permission denied.</string>
 </resources>
