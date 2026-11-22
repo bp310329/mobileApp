@@ -29,9 +29,15 @@
     <string name="vehicle_bike">Bike</string>
     <string name="route_generate">Generate route</string>
     <string name="route_location_unavailable">Your location isn\'t available yet. Try again in a moment.</string>
-    <string name="route_searching_pois">Searching for points of interest…</string>
-    <string name="route_pois_found">Found %1$d points of interest (%2$s)</string>
     <string name="route_poi_query_failed">Couldn\'t load points of interest: %1$s</string>
     <string name="center_on_location">Center on my location</string>
     <string name="location_permission_denied">Location permission denied.</string>
+    <string name="poi_list_title">Points of interest (test)</string>
+    <string name="poi_search_starting">Searching for %1$d points of interest…</string>
+    <string name="poi_search_progress">Stage %1$d · searching up to %2$s km · target %3$d</string>
+    <string name="poi_search_done">Found %1$d of %2$d · stage %3$d · radius %4$s km · %5$d queries</string>
+    <string name="poi_search_incomplete">Only %1$d of %2$d found · stage %3$d · radius %4$s km · %5$d queries</string>
+    <string name="poi_search_radii">Radius: min %1$s · start %2$s · max %3$s km</string>
+    <string name="poi_unnamed">(unnamed)</string>
+    <string name="poi_details">%1$s · %2$s km</string>
 </resources>

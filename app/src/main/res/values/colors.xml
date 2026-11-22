@@ -5,4 +5,9 @@
     <color name="status_connected">#FF2E7D32</color>
     <color name="status_connecting">#FFF9A825</color>
     <color name="status_disconnected">#FFC62828</color>
+    <!-- POI class badges in the POI test list -->
+    <color name="poi_class_a">#FFC62828</color>
+    <color name="poi_class_b">#FF2E7D32</color>
+    <color name="poi_class_c">#FF1565C0</color>
+    <color name="poi_class_d">#FF757575</color>
 </resources>

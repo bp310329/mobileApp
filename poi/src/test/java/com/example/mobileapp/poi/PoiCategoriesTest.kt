@@ -52,18 +52,11 @@ class PoiCategoriesTest {
 
     @Test
     fun `query contains every rule`() {
-        val query = OverpassPoiSource.buildQuery(50.0, 20.0, 10_000)
+        val query = OverpassPoiSource.buildQuery(50.0, 20.0, PoiCategories.rules, 10_000)
         assertTrue(query.startsWith("[out:json]"))
         assertTrue(query.contains("(around:10000,50.000000,20.000000)"))
         PoiCategories.rules.forEach { assertTrue(it.tag, query.contains(it.value)) }
         assertTrue(query.contains("[\"tower:type\"=\"observation\"]"))
-        assertTrue(query.trimEnd().endsWith("out center tags;"))
-    }
-
-    @Test
-    fun `search radius scales with route length within limits`() {
-        assertEquals(2_000, OverpassPoiSource.searchRadiusMeters(5))
-        assertEquals(17_500, OverpassPoiSource.searchRadiusMeters(50))
-        assertEquals(50_000, OverpassPoiSource.searchRadiusMeters(150))
+        assertTrue(query.endsWith(".ring out center tags;"))
     }
 }

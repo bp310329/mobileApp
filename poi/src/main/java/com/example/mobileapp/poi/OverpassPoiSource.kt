@@ -1,6 +1,7 @@
 package com.example.mobileapp.poi
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runInterruptible
 import org.json.JSONException
 import org.json.JSONObject
@@ -14,25 +15,52 @@ import java.util.Locale
 class PoiQueryException(message: String, cause: Throwable? = null) : IOException(message, cause)
 
 /**
- * Finds POIs (see [PoiCategories]) around a point using the OpenStreetMap Overpass API.
+ * Result of one Overpass query.
  *
- * @param endpoint Overpass interpreter URL; the public instance is rate-limited, so avoid
- *   firing queries in quick succession.
+ * @property limitReached the server stopped at the requested limit, so more POIs exist in the area.
+ */
+data class PoiBatch(val pois: List<Poi>, val limitReached: Boolean)
+
+/**
+ * Queries POIs (see [PoiCategories]) from the OpenStreetMap Overpass API.
+ *
+ * @param endpoint Overpass interpreter URL. The public instance is rate-limited; busy/rate-limit
+ *   responses are retried a few times with increasing delays.
  */
 class OverpassPoiSource(
     private val endpoint: String = DEFAULT_ENDPOINT,
-) {
+) : PoiSource {
 
     /**
-     * Queries all POIs within [radiusMeters] of the given point, sorted by class (A first) and name.
+     * Finds elements matching [rules] in the ring between [innerRadiusMeters] (exclusive) and
+     * [outerRadiusMeters] around the point. Returns at most [limit] elements (all when `null`);
+     * which ones the server picks when limited is arbitrary (OSM id order), not nearest-first.
      *
      * @throws PoiQueryException on network, HTTP or parsing errors.
      */
-    suspend fun findPois(latitude: Double, longitude: Double, radiusMeters: Int): List<Poi> {
-        val query = buildQuery(latitude, longitude, radiusMeters)
-        val json = runInterruptible(Dispatchers.IO) { post(query) }
-        return parseResponse(json)
+    override suspend fun findPois(
+        latitude: Double,
+        longitude: Double,
+        rules: List<PoiTagRule>,
+        outerRadiusMeters: Int,
+        innerRadiusMeters: Int,
+        limit: Int?,
+    ): PoiBatch {
+        val query = buildQuery(latitude, longitude, rules, outerRadiusMeters, innerRadiusMeters, limit)
+        var attempt = 0
+        while (true) {
+            try {
+                val json = runInterruptible(Dispatchers.IO) { post(query) }
+                return parseResponse(json, limit)
+            } catch (e: ServerBusyException) {
+                if (attempt >= RETRY_DELAYS_MS.size) throw PoiQueryException(e.message!!, e)
+                delay(RETRY_DELAYS_MS[attempt++])
+            }
+        }
     }
+
+    /** HTTP 429/502/503/504: server overloaded, no free slot or query timed out; worth retrying. */
+    private class ServerBusyException(message: String) : IOException(message)
 
     private fun post(query: String): String {
         val connection = try {
@@ -51,19 +79,15 @@ class OverpassPoiSource(
             val body = "data=" + URLEncoder.encode(query, "UTF-8")
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
 
-            val code = connection.responseCode
-            if (code != HttpURLConnection.HTTP_OK) {
-                val reason = when (code) {
-                    429 -> "too many requests, try again in a moment"
-                    504 -> "server busy or query timed out"
-                    else -> "HTTP $code"
-                }
-                throw PoiQueryException("Overpass API error: $reason")
+            when (val code = connection.responseCode) {
+                HttpURLConnection.HTTP_OK -> Unit
+                429 -> throw ServerBusyException("Overpass API: too many requests, try again in a moment")
+                502, 503, 504 -> throw ServerBusyException("Overpass API: server busy or query timed out")
+                else -> throw PoiQueryException("Overpass API error: HTTP $code")
             }
             return connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        } catch (e: PoiQueryException) {
-            throw e
         } catch (e: IOException) {
+            if (e is PoiQueryException || e is ServerBusyException) throw e
             throw PoiQueryException("Overpass API request failed", e)
         } finally {
             connection.disconnect()
@@ -77,45 +101,54 @@ class OverpassPoiSource(
         private const val READ_TIMEOUT_MS = 100_000
         /** Server-side limit; must stay below [READ_TIMEOUT_MS]. */
         private const val QUERY_TIMEOUT_S = 90
-
-        private const val MIN_RADIUS_M = 2_000
-        private const val MAX_RADIUS_M = 50_000
+        private val RETRY_DELAYS_MS = longArrayOf(3_000, 8_000, 15_000)
 
         /**
-         * Search radius for a round trip of [routeLengthKm]. A loop of length L stays roughly within
-         * L/π of its start (circle diameter), and roads add detours, so ~0.35·L covers it.
-         * Capped at [MAX_RADIUS_M] to keep the query manageable.
+         * Overpass QL for elements matching [rules] within [outerRadiusMeters] but not within
+         * [innerRadiusMeters], returning tags (name, description, …) and position (`center` for
+         * ways/relations), at most [limit] elements.
          */
-        fun searchRadiusMeters(routeLengthKm: Int): Int =
-            (routeLengthKm * 1000 * 0.35).toInt().coerceIn(MIN_RADIUS_M, MAX_RADIUS_M)
+        fun buildQuery(
+            latitude: Double,
+            longitude: Double,
+            rules: List<PoiTagRule>,
+            outerRadiusMeters: Int,
+            innerRadiusMeters: Int = 0,
+            limit: Int? = null,
+        ): String {
+            require(rules.isNotEmpty()) { "No rules to query" }
+            val point = String.format(Locale.ROOT, "%.6f,%.6f", latitude, longitude)
+            val outer = "(around:$outerRadiusMeters,$point)"
+            val (simple, conditional) = rules.partition { it.requiredTag == null }
 
-        /** Overpass QL fetching every element that matches a [PoiCategories] rule. */
-        fun buildQuery(latitude: Double, longitude: Double, radiusMeters: Int): String {
-            val around = String.format(Locale.ROOT, "(around:%d,%.6f,%.6f)", radiusMeters, latitude, longitude)
-            val (simple, conditional) = PoiCategories.rules.partition { it.requiredTag == null }
-
-            val statements = simple.groupBy { it.key }.map { (key, rules) ->
-                val values = rules.map { it.value }.distinct().joinToString("|")
-                "  nwr[\"$key\"~\"^($values)$\"]$around;"
+            val statements = simple.groupBy { it.key }.map { (key, keyRules) ->
+                val values = keyRules.map { it.value }.distinct().joinToString("|")
+                "  nwr[\"$key\"~\"^($values)$\"]$outer;"
             } + conditional.map { rule ->
                 val (extraKey, extraValue) = rule.requiredTag!!
-                "  nwr[\"${rule.key}\"=\"${rule.value}\"][\"$extraKey\"=\"$extraValue\"]$around;"
+                "  nwr[\"${rule.key}\"=\"${rule.value}\"][\"$extraKey\"=\"$extraValue\"]$outer;"
             }
             return buildString {
                 appendLine("[out:json][timeout:$QUERY_TIMEOUT_S];")
                 appendLine("(")
                 statements.forEach(::appendLine)
-                appendLine(");")
-                append("out center tags;")
+                appendLine(")->.ring;")
+                if (innerRadiusMeters > 0) {
+                    // Cut out the inner disc: filter the found set only, cheap compared to a 2nd search.
+                    appendLine("nwr.ring(around:$innerRadiusMeters,$point)->.inner;")
+                    appendLine("(.ring; - .inner;)->.ring;")
+                }
+                append(".ring out center tags")
+                if (limit != null) append(" $limit")
+                append(";")
             }
         }
 
         /** Converts an Overpass JSON response into classified POIs. */
-        fun parseResponse(json: String): List<Poi> = try {
+        fun parseResponse(json: String, limit: Int? = null): PoiBatch = try {
             val elements = JSONObject(json).getJSONArray("elements")
-            (0 until elements.length())
-                .mapNotNull { i -> parseElement(elements.getJSONObject(i)) }
-                .sortedWith(compareBy<Poi> { it.poiClass }.thenBy(nullsLast()) { it.name })
+            val pois = (0 until elements.length()).mapNotNull { i -> parseElement(elements.getJSONObject(i)) }
+            PoiBatch(pois, limitReached = limit != null && elements.length() >= limit)
         } catch (e: JSONException) {
             throw PoiQueryException("Unreadable Overpass API response", e)
         }
@@ -130,10 +163,11 @@ class OverpassPoiSource(
             return Poi(
                 id = "${element.getString("type")}/${element.getLong("id")}",
                 name = tags["name"],
+                category = rule.tag,
+                description = tags["description"] ?: tags["description:en"],
                 latitude = position.getDouble("lat"),
                 longitude = position.getDouble("lon"),
                 poiClass = poiClass,
-                category = rule.tag,
                 tags = tags,
             )
         }

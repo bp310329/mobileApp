@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.res.ColorStateList
 import android.graphics.Rect
 import android.os.Bundle
-import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -26,13 +25,12 @@ import com.example.mobileapp.bluetooth.BluetoothConnectionManager
 import com.example.mobileapp.map.AppMapView
 import com.example.mobileapp.map.LocationProvider
 import com.example.mobileapp.map.toUserLocation
-import com.example.mobileapp.poi.OverpassPoiSource
-import com.example.mobileapp.poi.PoiClass
-import com.example.mobileapp.poi.PoiQueryException
 import com.example.mobileapp.ui.bluetooth.BluetoothDevicesSheet
 import com.example.mobileapp.ui.bluetooth.BluetoothViewModel
+import com.example.mobileapp.ui.route.PoiListSheet
 import com.example.mobileapp.ui.route.RouteSettings
 import com.example.mobileapp.ui.route.RouteSettingsSheet
+import com.example.mobileapp.ui.route.RouteViewModel
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -45,8 +43,8 @@ class MainActivity : AppCompatActivity() {
     private val bluetoothViewModel: BluetoothViewModel by viewModels()
     /** Last route preferences; pre-fills the route settings sheet. */
     private var routeSettings = RouteSettings()
-    private val poiSource = OverpassPoiSource()
-    private var poiSearchJob: Job? = null
+    private val routeViewModel: RouteViewModel by viewModels()
+    private var locationJob: Job? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -129,34 +127,21 @@ class MainActivity : AppCompatActivity() {
             requestPermissionLauncher.launch(LocationProvider.REQUIRED_PERMISSIONS)
             return
         }
-        poiSearchJob?.cancel()
-        poiSearchJob = lifecycleScope.launch {
+        locationJob?.cancel()
+        locationJob = lifecycleScope.launch {
             val location = locationProvider.currentLocation.value
                 ?: locationProvider.getCurrentLocation()?.toUserLocation()
             if (location == null) {
-                toast(getString(R.string.route_location_unavailable))
+                Toast.makeText(this@MainActivity, R.string.route_location_unavailable, Toast.LENGTH_LONG).show()
                 return@launch
             }
-            toast(getString(R.string.route_searching_pois))
-            try {
-                val pois = poiSource.findPois(
-                    location.latitude,
-                    location.longitude,
-                    OverpassPoiSource.searchRadiusMeters(settings.lengthKm),
-                )
-                Log.d(TAG, "Found ${pois.size} POIs for $settings")
-                val counts = PoiClass.entries.joinToString(", ") { poiClass ->
-                    "${poiClass.name}: ${pois.count { it.poiClass == poiClass }}"
-                }
-                toast(getString(R.string.route_pois_found, pois.size, counts))
-            } catch (e: PoiQueryException) {
-                Log.w(TAG, "POI query failed", e)
-                toast(getString(R.string.route_poi_query_failed, e.message))
+            routeViewModel.searchPois(settings, location.latitude, location.longitude)
+            // Testing aid: show search progress and the prepared POIs.
+            if (supportFragmentManager.findFragmentByTag(PoiListSheet.TAG) == null) {
+                PoiListSheet().show(supportFragmentManager, PoiListSheet.TAG)
             }
         }
     }
-
-    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 
     /**
      * Opens the device picker, first walking through whatever is missing:
@@ -264,7 +249,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private companion object {
-        const val TAG = "MainActivity"
         const val KEY_ROUTE_SETTINGS = "routeSettings"
     }
 }
