@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.res.ColorStateList
 import android.graphics.Rect
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -24,14 +25,18 @@ import com.example.mobileapp.bluetooth.BluetoothAccess
 import com.example.mobileapp.bluetooth.BluetoothConnectionManager
 import com.example.mobileapp.map.AppMapView
 import com.example.mobileapp.map.LocationProvider
+import com.example.mobileapp.map.toUserLocation
+import com.example.mobileapp.poi.OverpassPoiSource
+import com.example.mobileapp.poi.PoiClass
+import com.example.mobileapp.poi.PoiQueryException
 import com.example.mobileapp.ui.bluetooth.BluetoothDevicesSheet
 import com.example.mobileapp.ui.bluetooth.BluetoothViewModel
 import com.example.mobileapp.ui.route.RouteSettings
 import com.example.mobileapp.ui.route.RouteSettingsSheet
-import com.example.mobileapp.ui.route.Vehicle
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -40,6 +45,8 @@ class MainActivity : AppCompatActivity() {
     private val bluetoothViewModel: BluetoothViewModel by viewModels()
     /** Last route preferences; pre-fills the route settings sheet. */
     private var routeSettings = RouteSettings()
+    private val poiSource = OverpassPoiSource()
+    private var poiSearchJob: Job? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -112,21 +119,44 @@ class MainActivity : AppCompatActivity() {
         RouteSettingsSheet.newInstance(routeSettings).show(supportFragmentManager, RouteSettingsSheet.TAG)
     }
 
-    /** Placeholder – later: query POIs, let the AI model pick the best ones, build an A-to-A route. */
+    /**
+     * Step 1 of route generation: queries POIs around the user. Next steps (not implemented yet):
+     * let the AI model pick the best POIs and build an A-to-A route through them.
+     */
     private fun generateRoute(settings: RouteSettings) {
-        val vehicle = getString(
-            when (settings.vehicle) {
-                Vehicle.CAR -> R.string.vehicle_car
-                Vehicle.MOTORCYCLE -> R.string.vehicle_motorcycle
-                Vehicle.BIKE -> R.string.vehicle_bike
+        val locationProvider = mapView.locationProvider
+        if (!locationProvider.hasLocationPermission()) {
+            requestPermissionLauncher.launch(LocationProvider.REQUIRED_PERMISSIONS)
+            return
+        }
+        poiSearchJob?.cancel()
+        poiSearchJob = lifecycleScope.launch {
+            val location = locationProvider.currentLocation.value
+                ?: locationProvider.getCurrentLocation()?.toUserLocation()
+            if (location == null) {
+                toast(getString(R.string.route_location_unavailable))
+                return@launch
             }
-        )
-        Toast.makeText(
-            this,
-            getString(R.string.route_generate_placeholder_toast, settings.lengthKm, settings.poiCount, vehicle),
-            Toast.LENGTH_SHORT,
-        ).show()
+            toast(getString(R.string.route_searching_pois))
+            try {
+                val pois = poiSource.findPois(
+                    location.latitude,
+                    location.longitude,
+                    OverpassPoiSource.searchRadiusMeters(settings.lengthKm),
+                )
+                Log.d(TAG, "Found ${pois.size} POIs for $settings")
+                val counts = PoiClass.entries.joinToString(", ") { poiClass ->
+                    "${poiClass.name}: ${pois.count { it.poiClass == poiClass }}"
+                }
+                toast(getString(R.string.route_pois_found, pois.size, counts))
+            } catch (e: PoiQueryException) {
+                Log.w(TAG, "POI query failed", e)
+                toast(getString(R.string.route_poi_query_failed, e.message))
+            }
+        }
     }
+
+    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()
 
     /**
      * Opens the device picker, first walking through whatever is missing:
@@ -234,6 +264,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private companion object {
+        const val TAG = "MainActivity"
         const val KEY_ROUTE_SETTINGS = "routeSettings"
     }
 }

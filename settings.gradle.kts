@@ -26,4 +26,5 @@ rootProject.name = "Mobile App"
 include(":app")
 include(":map")
 include(":bluetooth")
+include(":poi")
  
