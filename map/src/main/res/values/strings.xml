@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Required Maptoolkit attribution, see https://docs.maptoolkit.org/attribution/ -->
+    <string name="maptoolkit_logo_description">Maptoolkit</string>
+    <string name="maptoolkit_logo_url" translatable="false">https://www.maptoolkit.org/</string>
+    <string name="map_copyright_html" translatable="false"><![CDATA[© <a href="https://www.maptoolkit.com/copyright/">Maptoolkit</a> © <a href="https://www.openstreetmap.org/copyright">Openstreetmap</a>]]></string>
+</resources>

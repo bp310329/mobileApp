@@ -3,12 +3,24 @@ package com.example.mobileapp.map
 import android.annotation.SuppressLint
 import android.content.ComponentCallbacks2
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import android.location.Location
+import android.net.Uri
 import android.os.Bundle
+import android.text.method.LinkMovementMethod
 import android.util.AttributeSet
 import android.util.Log
+import android.util.TypedValue
+import android.view.Gravity
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.TextView
+import androidx.core.graphics.Insets
+import androidx.core.text.HtmlCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -26,6 +38,7 @@ import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import kotlin.math.roundToInt
 
 /**
  * Self-contained map component: initialises MapLibre, hosts the [MapView], applies the style and
@@ -72,12 +85,98 @@ class AppMapView @JvmOverloads constructor(
         override fun onLowMemory() = mapView.onLowMemory()
     }
 
+    /** Maptoolkit logo (required attribution), bottom-left; opens maptoolkit.org when tapped. */
+    private val logoView: ImageView
+    /** Maptoolkit / OpenStreetMap copyright line (required attribution), bottom-right. */
+    private val copyrightView: TextView
+    /** Latest system-bar insets, used to keep MapLibre's attribution button clear of them. */
+    private var attributionInsets = Insets.NONE
+
     init {
         // MapLibre must be initialised before a MapView is created.
         MapLibre.getInstance(context.applicationContext)
         mapView = MapView(context)
         addView(mapView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+
+        logoView = createLogoView()
+        copyrightView = createCopyrightView()
+        addView(logoView)
+        addView(copyrightView)
+        applyAttributionInsets()
     }
+
+    /**
+     * Maptoolkit requires its logo (min. 24dp high, linking to maptoolkit.org) and the copyright
+     * line to stay visible on every map: https://docs.maptoolkit.org/attribution/
+     */
+    private fun createLogoView() = ImageView(context).apply {
+        setImageResource(R.drawable.maptoolkit_logo)
+        adjustViewBounds = true
+        scaleType = ImageView.ScaleType.FIT_START
+        contentDescription = context.getString(R.string.maptoolkit_logo_description)
+        layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, dp(LOGO_HEIGHT_DP), Gravity.BOTTOM or Gravity.START)
+        setOnClickListener {
+            val url = context.getString(R.string.maptoolkit_logo_url)
+            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                .onFailure { Log.w(TAG, "No app can open $url", it) }
+        }
+    }
+
+    private fun createCopyrightView() = TextView(context).apply {
+        text = HtmlCompat.fromHtml(
+            context.getString(R.string.map_copyright_html),
+            HtmlCompat.FROM_HTML_MODE_COMPACT,
+        )
+        movementMethod = LinkMovementMethod.getInstance()
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+        setTextColor(COPYRIGHT_TEXT_COLOR)
+        setLinkTextColor(COPYRIGHT_TEXT_COLOR)
+        setBackgroundColor(COPYRIGHT_BACKGROUND_COLOR)
+        setPadding(dp(4), dp(1), dp(4), dp(1))
+        layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END)
+    }
+
+    /** Keeps the attribution clear of the system bars, since the map is drawn edge-to-edge. */
+    private fun applyAttributionInsets() {
+        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            logoView.updateLayoutParams<LayoutParams> {
+                leftMargin = dp(LOGO_MARGIN_DP) + bars.left
+                bottomMargin = dp(LOGO_MARGIN_DP) + bars.bottom
+            }
+            copyrightView.updateLayoutParams<LayoutParams> {
+                rightMargin = bars.right
+                bottomMargin = bars.bottom
+            }
+            attributionInsets = bars
+            map?.let(::positionAttributionButton)
+            insets
+        }
+    }
+
+    /**
+     * MapLibre's own "i" attribution button (also shows the Maptoolkit/OSM credits from the style)
+     * must stay enabled; it is placed right of the Maptoolkit logo. MapLibre's logo is hidden so it
+     * does not compete with the Maptoolkit one in the same corner.
+     */
+    private fun positionAttributionButton(map: MapLibreMap) {
+        val logoWidth = dp(LOGO_HEIGHT_DP) * LOGO_ASPECT_RATIO
+        map.uiSettings.apply {
+            isLogoEnabled = false
+            isAttributionEnabled = true
+            attributionGravity = Gravity.BOTTOM or Gravity.START
+            setAttributionMargins(
+                attributionInsets.left + dp(LOGO_MARGIN_DP * 2) + logoWidth.toInt(),
+                0,
+                0,
+                attributionInsets.bottom + dp(LOGO_MARGIN_DP),
+            )
+        }
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
     /** Binds the map to [owner]'s lifecycle. Call once, from the host's `onCreate`. */
     fun attach(owner: LifecycleOwner, savedInstanceState: Bundle?) {
@@ -138,6 +237,7 @@ class AppMapView @JvmOverloads constructor(
 
     private fun configureMap(map: MapLibreMap) {
         this.map = map
+        positionAttributionButton(map)
         map.cameraPosition = CameraPosition.Builder()
             .target(MapConfig.DEFAULT_CENTER)
             .zoom(MapConfig.DEFAULT_ZOOM)
@@ -200,5 +300,14 @@ class AppMapView @JvmOverloads constructor(
 
     private companion object {
         const val TAG = "AppMapView"
+
+        /** Maptoolkit's minimum logo height on Android. */
+        const val LOGO_HEIGHT_DP = 24
+        const val LOGO_MARGIN_DP = 8
+        /** Width / height of res/drawable-xxhdpi/maptoolkit_logo.png (227 x 72 px). */
+        const val LOGO_ASPECT_RATIO = 227f / 72f
+
+        const val COPYRIGHT_TEXT_COLOR = 0xFF333333.toInt()
+        const val COPYRIGHT_BACKGROUND_COLOR = 0xB3FFFFFF.toInt()
     }
 }
