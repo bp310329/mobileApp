@@ -18,7 +18,17 @@
     <string name="bluetooth_permission_denied">Bluetooth permission denied.</string>
     <string name="bluetooth_disabled">Bluetooth is turned off.</string>
     <string name="create_route">Create route</string>
-    <string name="create_route_placeholder_toast">Route creation – coming soon</string>
+    <string name="route_settings_title">Generate route</string>
+    <string name="route_settings_subtitle">Round trip starting and ending at your location</string>
+    <string name="route_length_label">Preferred route length</string>
+    <string name="route_length_value">%1$d km</string>
+    <string name="route_poi_label">Points of interest</string>
+    <string name="route_vehicle_label">Vehicle</string>
+    <string name="vehicle_car">Car</string>
+    <string name="vehicle_motorcycle">Motorcycle</string>
+    <string name="vehicle_bike">Bike</string>
+    <string name="route_generate">Generate route</string>
+    <string name="route_generate_placeholder_toast">Route generation coming soon (%1$d km, %2$d POIs, %3$s)</string>
     <string name="center_on_location">Center on my location</string>
     <string name="location_permission_denied">Location permission denied.</string>
 </resources>

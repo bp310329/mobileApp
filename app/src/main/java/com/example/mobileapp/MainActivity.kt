@@ -26,6 +26,9 @@ import com.example.mobileapp.map.AppMapView
 import com.example.mobileapp.map.LocationProvider
 import com.example.mobileapp.ui.bluetooth.BluetoothDevicesSheet
 import com.example.mobileapp.ui.bluetooth.BluetoothViewModel
+import com.example.mobileapp.ui.route.RouteSettings
+import com.example.mobileapp.ui.route.RouteSettingsSheet
+import com.example.mobileapp.ui.route.Vehicle
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -35,6 +38,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var mapView: AppMapView
     private val bluetoothViewModel: BluetoothViewModel by viewModels()
+    /** Last route preferences; pre-fills the route settings sheet. */
+    private var routeSettings = RouteSettings()
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -94,10 +99,33 @@ class MainActivity : AppCompatActivity() {
                 requestPermissionLauncher.launch(LocationProvider.REQUIRED_PERMISSIONS)
             }
         }
-        // Placeholder – real behaviour comes later.
-        createRouteButton.setOnClickListener {
-            Toast.makeText(this, R.string.create_route_placeholder_toast, Toast.LENGTH_SHORT).show()
+        routeSettings = RouteSettings.fromBundle(savedInstanceState?.getBundle(KEY_ROUTE_SETTINGS))
+        createRouteButton.setOnClickListener { openRouteSettings() }
+        supportFragmentManager.setFragmentResultListener(RouteSettingsSheet.REQUEST_KEY, this) { _, result ->
+            routeSettings = RouteSettings.fromBundle(result)
+            generateRoute(routeSettings)
         }
+    }
+
+    private fun openRouteSettings() {
+        if (supportFragmentManager.findFragmentByTag(RouteSettingsSheet.TAG) != null) return
+        RouteSettingsSheet.newInstance(routeSettings).show(supportFragmentManager, RouteSettingsSheet.TAG)
+    }
+
+    /** Placeholder – later: query POIs, let the AI model pick the best ones, build an A-to-A route. */
+    private fun generateRoute(settings: RouteSettings) {
+        val vehicle = getString(
+            when (settings.vehicle) {
+                Vehicle.CAR -> R.string.vehicle_car
+                Vehicle.MOTORCYCLE -> R.string.vehicle_motorcycle
+                Vehicle.BIKE -> R.string.vehicle_bike
+            }
+        )
+        Toast.makeText(
+            this,
+            getString(R.string.route_generate_placeholder_toast, settings.lengthKm, settings.poiCount, vehicle),
+            Toast.LENGTH_SHORT,
+        ).show()
     }
 
     /**
@@ -202,5 +230,10 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         mapView.onSaveInstanceState(outState)
+        outState.putBundle(KEY_ROUTE_SETTINGS, routeSettings.toBundle())
+    }
+
+    private companion object {
+        const val KEY_ROUTE_SETTINGS = "routeSettings"
     }
 }
