@@ -25,6 +25,7 @@ import com.example.mobileapp.bluetooth.BluetoothConnectionManager
 import com.example.mobileapp.map.AppMapView
 import com.example.mobileapp.map.LocationProvider
 import com.example.mobileapp.map.toUserLocation
+import com.example.mobileapp.poi.PoiSearchResult
 import com.example.mobileapp.ui.bluetooth.BluetoothDevicesSheet
 import com.example.mobileapp.ui.bluetooth.BluetoothViewModel
 import com.example.mobileapp.ui.route.PoiListSheet
@@ -36,6 +37,7 @@ import com.google.android.material.floatingactionbutton.ExtendedFloatingActionBu
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import org.maplibre.android.geometry.LatLng
 
 class MainActivity : AppCompatActivity() {
 
@@ -109,6 +111,32 @@ class MainActivity : AppCompatActivity() {
         supportFragmentManager.setFragmentResultListener(RouteSettingsSheet.REQUEST_KEY, this) { _, result ->
             routeSettings = RouteSettings.fromBundle(result)
             generateRoute(routeSettings)
+        }
+        observePoiSearch()
+    }
+
+    /** Pins every found POI on the map once the search finishes; clears them for a new search. */
+    private fun observePoiSearch() {
+        lifecycleScope.launch {
+            var shownResult: PoiSearchResult? = null
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                routeViewModel.poiSearch.collect { state ->
+                    when (state) {
+                        is RouteViewModel.PoiSearchState.Done -> {
+                            // Fit the camera only for a fresh result, not when re-collecting it.
+                            val isNew = state.result !== shownResult
+                            shownResult = state.result
+                            mapView.showPins(
+                                state.result.pois.map { LatLng(it.latitude, it.longitude) },
+                                fitCamera = isNew,
+                            )
+                        }
+                        is RouteViewModel.PoiSearchState.Searching,
+                        RouteViewModel.PoiSearchState.Idle -> mapView.showPins(emptyList())
+                        is RouteViewModel.PoiSearchState.Failed -> Unit
+                    }
+                }
+            }
         }
     }
 

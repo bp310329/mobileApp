@@ -17,6 +17,8 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.graphics.Insets
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.core.text.HtmlCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -31,6 +33,9 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.location.LocationComponent
 import org.maplibre.android.location.LocationComponentActivationOptions
 import org.maplibre.android.location.modes.CameraMode
@@ -38,6 +43,13 @@ import org.maplibre.android.location.modes.RenderMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
 import kotlin.math.roundToInt
 
 /**
@@ -73,6 +85,8 @@ class AppMapView @JvmOverloads constructor(
     private var hasCenteredOnUser = false
     /** Latest fix, kept so a position that arrives before the style loads isn't lost. */
     private var lastLocation: Location? = null
+    /** Pins currently requested by the host; re-applied when the style (re)loads. */
+    private var pins: List<LatLng> = emptyList()
 
     private val memoryCallbacks = object : ComponentCallbacks2 {
         override fun onTrimMemory(level: Int) {
@@ -235,6 +249,65 @@ class AppMapView @JvmOverloads constructor(
         )
     }
 
+    /**
+     * Shows a plain (label-less) pin at each of [points], replacing previously shown pins.
+     * An empty list removes all pins. Safe to call before the map/style has loaded.
+     *
+     * @param fitCamera when `true` (and there are pins), stops following the user and moves the
+     *   camera so that all pins and the user's position are visible. [followUser] resumes following.
+     */
+    fun showPins(points: List<LatLng>, fitCamera: Boolean = false) {
+        pins = points
+        style?.let(::applyPins)
+        if (fitCamera && points.isNotEmpty()) fitCameraTo(points)
+    }
+
+    private fun applyPins(style: Style) {
+        if (style.getImage(PIN_IMAGE_ID) == null) {
+            val drawable = checkNotNull(ContextCompat.getDrawable(context, R.drawable.map_pin))
+            style.addImage(PIN_IMAGE_ID, drawable.toBitmap())
+        }
+        val features = FeatureCollection.fromFeatures(
+            pins.map { Feature.fromGeometry(Point.fromLngLat(it.longitude, it.latitude)) }
+        )
+        val source = style.getSourceAs<GeoJsonSource>(PIN_SOURCE_ID)
+        if (source != null) {
+            source.setGeoJson(features)
+            return
+        }
+        style.addSource(GeoJsonSource(PIN_SOURCE_ID, features))
+        style.addLayer(
+            SymbolLayer(PIN_LAYER_ID, PIN_SOURCE_ID).withProperties(
+                PropertyFactory.iconImage(PIN_IMAGE_ID),
+                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+            )
+        )
+    }
+
+    private fun fitCameraTo(points: List<LatLng>) {
+        val map = map ?: return
+        // Otherwise the next location fix would pull the camera back to the user.
+        activeLocationComponent()?.cameraMode = CameraMode.NONE
+        hasCenteredOnUser = true
+
+        val all = points + listOfNotNull(lastLocation?.let { LatLng(it.latitude, it.longitude) })
+        val update = if (all.size == 1) {
+            CameraUpdateFactory.newLatLngZoom(all.first(), MapConfig.USER_LOCATION_ZOOM)
+        } else {
+            val padding = dp(PIN_FIT_PADDING_DP)
+            CameraUpdateFactory.newLatLngBounds(
+                LatLngBounds.Builder().includes(all).build(),
+                attributionInsets.left + padding,
+                attributionInsets.top + padding,
+                attributionInsets.right + padding,
+                attributionInsets.bottom + padding,
+            )
+        }
+        map.animateCamera(update, MapConfig.CAMERA_TRANSITION_MS.toInt())
+    }
+
     private fun configureMap(map: MapLibreMap) {
         this.map = map
         positionAttributionButton(map)
@@ -244,6 +317,7 @@ class AppMapView @JvmOverloads constructor(
             .build()
         map.setStyle(Style.Builder().fromUri(MapConfig.STYLE_URL)) { loadedStyle ->
             style = loadedStyle
+            if (pins.isNotEmpty()) applyPins(loadedStyle)
             if (trackingJob != null) activateLocationComponent(loadedStyle)
         }
     }
@@ -309,5 +383,11 @@ class AppMapView @JvmOverloads constructor(
 
         const val COPYRIGHT_TEXT_COLOR = 0xFF333333.toInt()
         const val COPYRIGHT_BACKGROUND_COLOR = 0xB3FFFFFF.toInt()
+
+        const val PIN_IMAGE_ID = "app-pin"
+        const val PIN_SOURCE_ID = "app-pins"
+        const val PIN_LAYER_ID = "app-pins-layer"
+        /** Margin around the pins when the camera is fitted to them; also clears the pin icon height. */
+        const val PIN_FIT_PADDING_DP = 64
     }
 }

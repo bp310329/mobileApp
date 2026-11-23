@@ -12,6 +12,7 @@
             <option value="$PROJECT_DIR$/app" />
             <option value="$PROJECT_DIR$/bluetooth" />
             <option value="$PROJECT_DIR$/map" />
+            <option value="$PROJECT_DIR$/poi" />
           </set>
         </option>
       </GradleProjectSettings>
