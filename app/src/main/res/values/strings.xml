@@ -33,6 +33,7 @@
     <string name="center_on_location">Center on my location</string>
     <string name="location_permission_denied">Location permission denied.</string>
     <string name="poi_list_title">Points of interest (test)</string>
+    <string name="show_poi_list">Show points of interest</string>
     <string name="poi_search_starting">Searching for %1$d points of interest…</string>
     <string name="poi_search_progress">Stage %1$d · searching up to %2$s km · target %3$d</string>
     <string name="poi_search_done">Found %1$d of %2$d · stage %3$d · radius %4$s km · %5$d queries</string>

@@ -16,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -90,8 +91,9 @@ class MainActivity : AppCompatActivity() {
         val statusBar = findViewById<MaterialCardView>(R.id.bluetoothStatusBar)
         val createRouteButton = findViewById<ExtendedFloatingActionButton>(R.id.createRouteButton)
         val centerButton = findViewById<FloatingActionButton>(R.id.centerButton)
+        val poiListButton = findViewById<FloatingActionButton>(R.id.poiListButton)
 
-        applyWindowInsets(statusBar, createRouteButton, centerButton)
+        applyWindowInsets(statusBar, createRouteButton, listOf(centerButton, poiListButton))
         mapView = findViewById(R.id.mapView)
         mapView.attach(this, savedInstanceState)
         startUserLocation()
@@ -112,15 +114,27 @@ class MainActivity : AppCompatActivity() {
             routeSettings = RouteSettings.fromBundle(result)
             generateRoute(routeSettings)
         }
-        observePoiSearch()
+        poiListButton.setOnClickListener { showPoiList() }
+        observePoiSearch(poiListButton)
     }
 
-    /** Pins every found POI on the map once the search finishes; clears them for a new search. */
-    private fun observePoiSearch() {
+    /** Opens the POI list sheet (search progress / results), unless it's already showing. */
+    private fun showPoiList() {
+        if (supportFragmentManager.findFragmentByTag(PoiListSheet.TAG) == null) {
+            PoiListSheet().show(supportFragmentManager, PoiListSheet.TAG)
+        }
+    }
+
+    /**
+     * Pins every found POI on the map once the search finishes; clears them for a new search.
+     * [poiListButton] is shown whenever there is a search to look at, so a closed list can be reopened.
+     */
+    private fun observePoiSearch(poiListButton: View) {
         lifecycleScope.launch {
             var shownResult: PoiSearchResult? = null
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 routeViewModel.poiSearch.collect { state ->
+                    poiListButton.isVisible = state != RouteViewModel.PoiSearchState.Idle
                     when (state) {
                         is RouteViewModel.PoiSearchState.Done -> {
                             // Fit the camera only for a fresh result, not when re-collecting it.
@@ -165,9 +179,7 @@ class MainActivity : AppCompatActivity() {
             }
             routeViewModel.searchPois(settings, location.latitude, location.longitude)
             // Testing aid: show search progress and the prepared POIs.
-            if (supportFragmentManager.findFragmentByTag(PoiListSheet.TAG) == null) {
-                PoiListSheet().show(supportFragmentManager, PoiListSheet.TAG)
-            }
+            showPoiList()
         }
     }
 
@@ -236,11 +248,12 @@ class MainActivity : AppCompatActivity() {
     private fun applyWindowInsets(
         topBar: MaterialCardView,
         bottomButton: ExtendedFloatingActionButton,
-        cornerButton: FloatingActionButton,
+        cornerButtons: List<FloatingActionButton>,
     ) {
         val baseBottomMargin = (bottomButton.layoutParams as ViewGroup.MarginLayoutParams).bottomMargin
-        val (cornerBaseEnd, cornerBaseBottom) = (cornerButton.layoutParams as ViewGroup.MarginLayoutParams)
-            .let { it.marginEnd to it.bottomMargin }
+        val cornerBaseMargins = cornerButtons.map { button ->
+            (button.layoutParams as ViewGroup.MarginLayoutParams).let { it.marginEnd to it.bottomMargin }
+        }
         val topBarContent = findViewById<View>(R.id.bluetoothStatusContent)
         val contentPadding = Rect(
             topBarContent.paddingLeft, topBarContent.paddingTop,
@@ -262,9 +275,11 @@ class MainActivity : AppCompatActivity() {
             bottomButton.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                 bottomMargin = baseBottomMargin + bars.bottom
             }
-            cornerButton.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                marginEnd = cornerBaseEnd + bars.right
-                bottomMargin = cornerBaseBottom + bars.bottom
+            cornerButtons.zip(cornerBaseMargins) { button, (baseEnd, baseBottom) ->
+                button.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                    marginEnd = baseEnd + bars.right
+                    bottomMargin = baseBottom + bars.bottom
+                }
             }
             insets
         }
