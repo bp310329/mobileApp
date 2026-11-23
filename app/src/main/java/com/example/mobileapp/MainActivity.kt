@@ -34,6 +34,7 @@ import com.example.mobileapp.ui.route.RouteSettings
 import com.example.mobileapp.ui.route.RouteSettingsSheet
 import com.example.mobileapp.ui.route.RouteViewModel
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import kotlinx.coroutines.Job
@@ -116,6 +117,36 @@ class MainActivity : AppCompatActivity() {
         }
         poiListButton.setOnClickListener { showPoiList() }
         observePoiSearch(poiListButton)
+        if (BuildConfig.DEBUG) enableDebugLocationOverride()
+    }
+
+    /**
+     * Debug builds only: long-pressing the map lets you pretend you are at that point (for the map
+     * marker and route/POI search) or return to the real GPS position.
+     */
+    private fun enableDebugLocationOverride() {
+        mapView.getMapAsync { map ->
+            map.addOnMapLongClickListener { point ->
+                val locationProvider = mapView.locationProvider
+                val options = buildList {
+                    add(getString(R.string.debug_location_set_here))
+                    if (locationProvider.isLocationOverridden) add(getString(R.string.debug_location_use_real))
+                }
+                MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.debug_location_title)
+                    .setItems(options.toTypedArray()) { _, which ->
+                        if (which == 0) {
+                            locationProvider.setLocationOverride(point.latitude, point.longitude)
+                        } else {
+                            locationProvider.clearLocationOverride()
+                        }
+                        // The marker moves via the location flow; bring the camera along.
+                        if (mapView.enableUserLocation()) mapView.followUser()
+                    }
+                    .show()
+                true
+            }
+        }
     }
 
     /** Opens the POI list sheet (search progress / results), unless it's already showing. */
