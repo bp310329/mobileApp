@@ -14,82 +14,90 @@ class PoiSearcherTest {
 
     @Test
     fun `params follow the formulas`() {
-        // L = 50, n = 5 → F = 1
-        val p = PoiSearchParams.from(50, 5)
+        // L = 60, n = 5 → base 10 km, ±30 %
+        val p = PoiSearchParams.from(60, 5)
         assertEquals(50, p.targetCount)
-        assertEquals(3.0, p.startRadiusKm, 1e-9)
-        assertEquals(9.0, p.maxRadiusKm, 1e-9)
-        assertEquals(5.0, p.minRadiusKm, 1e-9)
-        assertEquals(listOf(3.0, 4.5, 6.75, 9.0), p.radiusSteps)
+        assertEquals(7.0, p.minRadiusKm, 1e-9)
+        assertEquals(13.0, p.maxRadiusKm, 1e-9)
     }
 
     @Test
-    fun `params are clamped`() {
-        val small = PoiSearchParams.from(5, 1)
-        assertEquals(0.5, small.startRadiusKm, 1e-9)
-        assertEquals(1.25, small.maxRadiusKm, 1e-9)
-        assertEquals(0.5, small.minRadiusKm, 1e-9)
-
-        val big = PoiSearchParams.from(150, 10)
-        assertEquals(8.0, big.startRadiusKm, 1e-9)
-        assertEquals(30.0, big.maxRadiusKm, 1e-9)
-        assertEquals(10.0, big.minRadiusKm, 1e-9)
-    }
-
-    @Test
-    fun `minimum radius never swallows the whole search area`() {
-        val p = PoiSearchParams.from(50, 1) // min 5 km, max ≈ 4.02 km by the formulas
-        assertTrue(p.minRadiusKm < p.maxRadiusKm)
+    fun `single POI uses half the distance with 10 percent spread`() {
+        val p = PoiSearchParams.from(50, 1)
+        assertEquals(10, p.targetCount)
+        assertEquals(22.5, p.minRadiusKm, 1e-9)
+        assertEquals(27.5, p.maxRadiusKm, 1e-9)
     }
 
     @Test
     fun `stops in stage 1 when enough A and B are found and picks randomly`() = runBlocking {
-        val source = FakeSource(List(80) { poi("a$it", "historic", "castle", km = 6.0) })
-        val result = PoiSearcher(source, Random(1)).search(lat, lon, PoiSearchParams.from(50, 5))
+        val source = FakeSource(List(80) { poi("a$it", "historic", "castle", km = 10.0) })
+        val result = PoiSearcher(source, Random(1)).search(lat, lon, PoiSearchParams.from(60, 5))
         assertTrue(result.isComplete)
         assertEquals(PoiSearchStage.MAIN_AND_NATURE, result.stage)
         assertEquals(50, result.pois.size)
-        assertEquals(6.75, result.radiusKm, 1e-9) // 3 and 4.5 km are inside the 5 km minimum
+        assertEquals(1, result.requestCount)
     }
 
     @Test
-    fun `skips POIs inside the minimum radius`() = runBlocking {
-        val source = FakeSource(List(80) { poi("a$it", "historic", "castle", km = 1.0) })
-        val result = PoiSearcher(source, Random(1)).search(lat, lon, PoiSearchParams.from(50, 5))
+    fun `skips POIs outside the ring`() = runBlocking {
+        val inside = List(80) { poi("in$it", "historic", "castle", km = 5.0) }
+        val outside = List(80) { poi("out$it", "historic", "castle", km = 15.0) }
+        val result = PoiSearcher(FakeSource(inside + outside), Random(1)).search(lat, lon, PoiSearchParams.from(60, 5))
         assertFalse(result.isComplete)
         assertTrue(result.pois.isEmpty())
+        assertEquals(3, result.requestCount)
     }
 
     @Test
-    fun `later stage keeps all earlier POIs and fills with the next class`() = runBlocking {
-        val ab = List(10) { poi("a$it", "leisure", "park", km = 8.0) }
-        val c = List(100) { poi("c$it", "natural", "peak", km = 6.0) }
-        val result = PoiSearcher(FakeSource(ab + c), Random(1)).search(lat, lon, PoiSearchParams.from(50, 5))
+    fun `later stage keeps all earlier POIs and fills randomly with the next class`() = runBlocking {
+        val ab = List(10) { poi("a$it", "leisure", "park", km = 15.0) }
+        val c = List(100) { poi("c$it", "natural", "peak", km = 15.0) }
+        val result = PoiSearcher(FakeSource(ab + c), Random(1)).search(lat, lon, PoiSearchParams.from(60, 3))
         assertTrue(result.isComplete)
         assertEquals(PoiSearchStage.LOCAL, result.stage)
-        // Stage 1 finds only 10 parks; stage 2 restarts and at 6.75 km the 100 peaks exceed the
-        // target while the parks (8 km) are not yet in range.
-        assertEquals(6.75, result.radiusKm, 1e-9)
-        assertEquals(50, result.pois.size)
-        assertTrue(result.pois.all { it.poiClass == PoiClass.C })
-    }
-
-    @Test
-    fun `earlier POIs within radius are all kept`() = runBlocking {
-        val ab = List(10) { poi("a$it", "leisure", "park", km = 6.0) }
-        val c = List(100) { poi("c$it", "natural", "peak", km = 6.0) }
-        val result = PoiSearcher(FakeSource(ab + c), Random(1)).search(lat, lon, PoiSearchParams.from(50, 5))
-        assertEquals(50, result.pois.size)
+        assertEquals(30, result.pois.size)
         assertEquals(10, result.pois.count { it.poiClass == PoiClass.B })
+        assertEquals(20, result.pois.count { it.poiClass == PoiClass.C })
     }
 
     @Test
-    fun `falls back to villages and reports an incomplete search`() = runBlocking {
-        val villages = List(3) { poi("v$it", "place", "village", km = 7.0) }
-        val result = PoiSearcher(FakeSource(villages), Random(1)).search(lat, lon, PoiSearchParams.from(50, 5))
+    fun `stage 3 includes villages and reports an incomplete search`() = runBlocking {
+        val villages = List(3) { poi("v$it", "place", "village", km = 10.0) }
+        val result = PoiSearcher(FakeSource(villages), Random(1)).search(lat, lon, PoiSearchParams.from(60, 5))
         assertFalse(result.isComplete)
         assertEquals(3, result.pois.size)
-        assertEquals(PoiSearchStage.VILLAGES, result.stage)
+        assertEquals(PoiSearchStage.FILLER, result.stage)
+    }
+
+    @Test
+    fun `never recenters for 3 or fewer POIs`() = runBlocking {
+        val ab = List(5) { poi("a$it", "leisure", "park", km = 15.0) }
+        repeat(50) { seed ->
+            val result = PoiSearcher(FakeSource(ab), Random(seed)).search(lat, lon, PoiSearchParams.from(80, 3))
+            assertFalse(result.recentered)
+            assertEquals(lat, result.centerLatitude, 0.0)
+        }
+    }
+
+    @Test
+    fun `sometimes recenters on a found POI and continues from there`() = runBlocking {
+        // L = 60, n = 5 → ring 7–13 km. Parks 10 km north; peaks 20 km north are reachable only
+        // from a park.
+        val ab = List(5) { poi("a$it", "leisure", "park", km = 10.0) }
+        val c = List(100) { poi("c$it", "natural", "peak", km = 20.0) }
+        val results = (0 until 300).map { seed ->
+            PoiSearcher(FakeSource(ab + c), Random(seed)).search(lat, lon, PoiSearchParams.from(60, 5))
+        }
+        val recentered = results.filter { it.recentered }
+        assertTrue(recentered.size in 70..130) // ≈ 1/3 of 300
+        recentered.forEach { r ->
+            assertTrue(ab.any { it.latitude == r.centerLatitude && it.longitude == r.centerLongitude })
+            assertTrue(r.isComplete)
+            assertEquals(5, r.pois.count { it.poiClass == PoiClass.B })
+            assertEquals(45, r.pois.count { it.poiClass == PoiClass.C })
+        }
+        results.filter { !it.recentered }.forEach { assertFalse(it.isComplete) }
     }
 
     @Test
@@ -103,9 +111,10 @@ class PoiSearcherTest {
     }
 
     @Test
-    fun `stage 3 does not query villages, stage 4 only villages`() {
-        assertTrue(PoiSearchStage.FILLER.rules.none { it.key == "place" })
-        assertTrue(PoiSearchStage.VILLAGES.rules.all { it.key == "place" })
+    fun `stages cover A+B, C and D`() {
+        assertEquals(3, PoiSearchStage.entries.size)
+        assertTrue(PoiSearchStage.FILLER.rules.all { it.poiClass == PoiClass.D })
+        assertTrue(PoiSearchStage.FILLER.rules.any { it.key == "place" })
     }
 
     /** POI placed [km] north of the search center. */

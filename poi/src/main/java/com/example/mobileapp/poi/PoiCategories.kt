@@ -30,7 +30,7 @@ object PoiCategories {
         add(PoiTagRule("heritage", "1", PoiClass.A)) // UNESCO World Heritage
 
         // B – important recreational and nature places
-        addAll(PoiClass.B, "leisure", "park", "nature_reserve", "garden")
+        addAll(PoiClass.B, "leisure", "park", "nature_reserve")
         addAll(PoiClass.B, "boundary", "protected_area", "national_park")
         addAll(PoiClass.B, "tourism", "viewpoint")
         addAll(PoiClass.B, "natural", "cave_entrance", "beach", "arch", "gorge", "glacier")

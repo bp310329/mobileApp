@@ -1,55 +1,39 @@
 package com.example.mobileapp.poi
 
-import kotlin.math.min
-import kotlin.math.sqrt
-
 /**
  * How many POIs to prepare and where to look for them, derived from the user's route settings.
  *
- * With L = route length (km), n = preferred POI count and F = √(n / 5):
+ * With L = route length (km) and n = preferred POI count:
  * - target = 10 · n
- * - starting radius = clamp(0.06 · L · F, 0.5, 8) km
- * - maximum radius  = clamp(0.18 · L · F, 1.25, 30) km
- * - minimum radius  = min(0.1 · L, 10) km — POIs closer than this to the start are skipped.
+ * - n = 1: minimum radius = L / 2 − 10 %, maximum radius = L / 2 + 10 %
+ * - n > 1: minimum radius = L / (n + 1) − 30 %, maximum radius = L / (n + 1) + 30 %
  *
- * POIs are searched in the ring between [minRadiusKm] and the current radius, which starts at
- * [startRadiusKm] and grows ×[RADIUS_GROWTH] up to [maxRadiusKm] (see [radiusSteps]).
+ * POIs are searched in the fixed ring between [minRadiusKm] and [maxRadiusKm] around the center.
  */
 data class PoiSearchParams(
     val targetCount: Int,
+    val poiCount: Int,
     val minRadiusKm: Double,
-    val startRadiusKm: Double,
     val maxRadiusKm: Double,
 ) {
-    /** Search radii for one stage: start, start·1.5, start·1.5², … ending exactly at the maximum. */
-    val radiusSteps: List<Double>
-        get() = buildList {
-            var radius = min(startRadiusKm, maxRadiusKm)
-            add(radius)
-            while (radius < maxRadiusKm) {
-                radius = min(radius * RADIUS_GROWTH, maxRadiusKm)
-                add(radius)
-            }
-        }
-
     companion object {
         const val POIS_PER_REQUESTED_POI = 10
-        const val RADIUS_GROWTH = 1.5
+        private const val SINGLE_POI_SPREAD = 0.1
+        private const val MULTI_POI_SPREAD = 0.3
 
         fun from(routeLengthKm: Int, poiCount: Int): PoiSearchParams {
+            require(poiCount >= 1) { "poiCount must be at least 1" }
             val length = routeLengthKm.toDouble()
-            val f = sqrt(poiCount / 5.0)
-            val start = (0.06 * length * f).coerceIn(0.5, 8.0)
-            val max = (0.18 * length * f).coerceIn(1.25, 30.0)
-            var minimum = min(0.1 * length, 10.0)
-            // For few POIs on a long route the formulas give min ≥ max (e.g. 1 POI, 50 km:
-            // min 5 km, max 4 km), which would leave nothing to search. Fall back to half of max.
-            if (minimum >= max) minimum = max / 2
+            val (base, spread) = if (poiCount == 1) {
+                length / 2 to SINGLE_POI_SPREAD
+            } else {
+                length / (poiCount + 1) to MULTI_POI_SPREAD
+            }
             return PoiSearchParams(
                 targetCount = poiCount * POIS_PER_REQUESTED_POI,
-                minRadiusKm = minimum,
-                startRadiusKm = start,
-                maxRadiusKm = max,
+                poiCount = poiCount,
+                minRadiusKm = base * (1 - spread),
+                maxRadiusKm = base * (1 + spread),
             )
         }
     }

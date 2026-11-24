@@ -18,9 +18,11 @@ interface PoiSource {
 /**
  * Outcome of a POI search.
  *
- * @property pois the prepared candidates, best class first, then nearest first.
+ * @property pois the prepared candidates, best class first, then nearest first (to the start).
  * @property stage the stage in which the search stopped.
- * @property radiusKm the search radius at which it stopped.
+ * @property centerLatitude center of the search ring when the search stopped; differs from the
+ *   start when the search was [recentered].
+ * @property recentered the ring was moved to an already found POI during the search.
  * @property isComplete `true` when [PoiSearchParams.targetCount] POIs were found.
  * @property requestCount number of Overpass queries made.
  */
@@ -28,7 +30,9 @@ data class PoiSearchResult(
     val pois: List<Poi>,
     val params: PoiSearchParams,
     val stage: PoiSearchStage,
-    val radiusKm: Double,
+    val centerLatitude: Double,
+    val centerLongitude: Double,
+    val recentered: Boolean,
     val isComplete: Boolean,
     val requestCount: Int,
 )
@@ -36,17 +40,15 @@ data class PoiSearchResult(
 /**
  * Prepares candidate POIs for a round trip, following the staged search:
  *
- * - Stage 1 looks for A and B POIs, stage 2 adds C, stage 3 adds D, stage 4 adds villages.
- * - In every stage the radius restarts at the starting radius and grows ×1.5 up to the maximum;
- *   only the ring between the minimum radius and the current radius is searched.
+ * - Stage 1 looks for A and B POIs, stage 2 for C, stage 3 for D.
+ * - Every stage searches the same fixed ring between [PoiSearchParams.minRadiusKm] and
+ *   [PoiSearchParams.maxRadiusKm] around the current center.
  * - The search stops as soon as [PoiSearchParams.targetCount] POIs are found. Everything from
- *   earlier stages within the radius is kept, and the rest is picked randomly from the current
- *   stage's POIs (in stage 1 all are picked randomly).
- *
- * To keep Overpass queries small, each radius step only queries the *new* ring (previous radius →
- * current radius) for the *current* stage's tags, with an output limit. A finished stage reached the
- * maximum radius without hitting a limit, so its POIs are a complete set that later stages reuse
- * locally instead of querying again.
+ *   earlier stages is kept, and the rest is picked randomly from the current stage's POIs.
+ * - When more than [RECENTER_MIN_POI_COUNT] POIs are requested, a search has a
+ *   [RECENTER_CHANCE] chance to move the ring's center, once, to a random already found POI
+ *   after a stage that didn't find enough; later stages search around that POI. This makes the
+ *   candidate cluster lean in a random direction instead of always forming a ring around the start.
  */
 class PoiSearcher(
     private val source: PoiSource,
@@ -55,7 +57,7 @@ class PoiSearcher(
 
     /** Called before each Overpass query, e.g. to show progress. */
     fun interface ProgressListener {
-        fun onProgress(stage: PoiSearchStage, radiusKm: Double)
+        fun onProgress(stage: PoiSearchStage, recentered: Boolean)
     }
 
     /** @throws PoiQueryException when a query fails. */
@@ -66,72 +68,67 @@ class PoiSearcher(
         progress: ProgressListener = ProgressListener { _, _ -> },
     ): PoiSearchResult {
         val target = params.targetCount
-        val known = LinkedHashMap<String, Poi>() // complete sets from finished stages
+        val known = LinkedHashMap<String, Poi>() // all POIs from finished stages
         var requests = 0
+        var centerLat = latitude
+        var centerLon = longitude
+        var recentered = false
+        var willRecenter = params.poiCount > RECENTER_MIN_POI_COUNT && random.nextDouble() < RECENTER_CHANCE
 
-        fun Poi.distanceKm() = distanceKmTo(latitude, longitude)
-
-        for (stage in PoiSearchStage.entries) {
-            val found = LinkedHashMap<String, Poi>()
-            var searchedUpToKm = params.minRadiusKm
-
-            for (radiusKm in params.radiusSteps) {
-                if (radiusKm <= searchedUpToKm) continue // still inside the minimum radius
-                progress.onProgress(stage, radiusKm)
-
-                val knownWithin = known.values.filter { it.distanceKm() <= radiusKm }
-                val needed = target - knownWithin.size - found.size
-                val batch = source.findPois(
-                    latitude, longitude, stage.rules,
-                    outerRadiusMeters = (radiusKm * 1000).roundToInt(),
-                    innerRadiusMeters = (searchedUpToKm * 1000).roundToInt(),
-                    limit = (needed * OVERSAMPLING).coerceIn(MIN_QUERY_LIMIT, MAX_QUERY_LIMIT),
-                )
-                requests++
-                batch.pois.forEach { poi -> if (poi.id !in known) found.putIfAbsent(poi.id, poi) }
-                searchedUpToKm = radiusKm
-
-                if (knownWithin.size + found.size >= target) {
-                    val picked = pickRandomly(knownWithin, found.values.toList(), target)
-                    return PoiSearchResult(
-                        pois = picked.sortedForDisplay(latitude, longitude),
-                        params = params,
-                        stage = stage,
-                        radiusKm = radiusKm,
-                        isComplete = true,
-                        requestCount = requests,
-                    )
-                }
-            }
-            known.putAll(found)
-        }
-
-        return PoiSearchResult(
-            pois = known.values.toList().sortedForDisplay(latitude, longitude),
+        fun result(pois: List<Poi>, stage: PoiSearchStage, isComplete: Boolean) = PoiSearchResult(
+            pois = pois.sortedForDisplay(latitude, longitude),
             params = params,
-            stage = PoiSearchStage.entries.last(),
-            radiusKm = params.maxRadiusKm,
-            isComplete = false,
+            stage = stage,
+            centerLatitude = centerLat,
+            centerLongitude = centerLon,
+            recentered = recentered,
+            isComplete = isComplete,
             requestCount = requests,
         )
-    }
 
-    /** Keeps all [earlier] POIs and fills up to [target] with random [current] ones. */
-    private fun pickRandomly(earlier: List<Poi>, current: List<Poi>, target: Int): List<Poi> =
-        if (earlier.size >= target) {
-            earlier.shuffled(random).take(target)
-        } else {
-            earlier + current.shuffled(random).take(target - earlier.size)
+        for (stage in PoiSearchStage.entries) {
+            if (willRecenter && known.isNotEmpty()) {
+                val newCenter = known.values.random(random)
+                centerLat = newCenter.latitude
+                centerLon = newCenter.longitude
+                recentered = true
+                willRecenter = false
+            }
+            progress.onProgress(stage, recentered)
+
+            val needed = target - known.size
+            val batch = source.findPois(
+                centerLat, centerLon, stage.rules,
+                outerRadiusMeters = (params.maxRadiusKm * 1000).roundToInt(),
+                innerRadiusMeters = (params.minRadiusKm * 1000).roundToInt(),
+                limit = (needed * OVERSAMPLING).coerceIn(MIN_QUERY_LIMIT, MAX_QUERY_LIMIT),
+            )
+            requests++
+            val found = batch.pois.filter { it.id !in known }.distinctBy { it.id }
+
+            if (known.size + found.size >= target) {
+                val picked = known.values.toList() + found.shuffled(random).take(needed)
+                return result(picked, stage, isComplete = true)
+            }
+            found.forEach { known[it.id] = it }
         }
+
+        return result(known.values.toList(), PoiSearchStage.entries.last(), isComplete = false)
+    }
 
     private fun List<Poi>.sortedForDisplay(latitude: Double, longitude: Double) =
         sortedWith(compareBy<Poi> { it.poiClass }.thenBy { it.distanceKmTo(latitude, longitude) })
 
-    private companion object {
+    companion object {
+        /** Recentering is possible only when more POIs than this are requested. */
+        const val RECENTER_MIN_POI_COUNT = 3
+        /** Chance per search that the ring's center moves to a found POI. */
+        const val RECENTER_CHANCE = 1.0 / 3
+
         /** Ask for more than needed so the random pick has something to choose from. */
-        const val OVERSAMPLING = 3
-        const val MIN_QUERY_LIMIT = 30
+        private const val OVERSAMPLING = 3
+        private const val MIN_QUERY_LIMIT = 30
         /** Keeps responses small for dense C/D tags (memorials, artworks, crosses…). */
-        const val MAX_QUERY_LIMIT = 300
+        private const val MAX_QUERY_LIMIT = 300
     }
 }

@@ -40,10 +40,11 @@
     <string name="debug_location_set_here">Set my location here</string>
     <string name="debug_location_use_real">Use real GPS location</string>
     <string name="poi_search_starting">Searching for %1$d points of interest…</string>
-    <string name="poi_search_progress">Stage %1$d · searching up to %2$s km · target %3$d</string>
-    <string name="poi_search_done">Found %1$d of %2$d · stage %3$d · radius %4$s km · %5$d queries</string>
-    <string name="poi_search_incomplete">Only %1$d of %2$d found · stage %3$d · radius %4$s km · %5$d queries</string>
-    <string name="poi_search_radii">Radius: min %1$s · start %2$s · max %3$s km</string>
+    <string name="poi_search_progress">Stage %1$d · target %2$d</string>
+    <string name="poi_search_done">Found %1$d of %2$d · stage %3$d · %4$d queries</string>
+    <string name="poi_search_incomplete">Only %1$d of %2$d found · stage %3$d · %4$d queries</string>
+    <string name="poi_search_radii">Radius: min %1$s · max %2$s km</string>
+    <string name="poi_search_recentered">" · recentered on a found POI"</string>
     <string name="poi_unnamed">(unnamed)</string>
     <string name="poi_details">%1$s · %2$s km</string>
 </resources>

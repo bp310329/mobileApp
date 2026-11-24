@@ -48,16 +48,15 @@ class PoiListSheet : BottomSheetDialogFragment(R.layout.sheet_poi_list) {
                         } else {
                             getString(
                                 R.string.poi_search_progress,
-                                state.stage.number, km(state.radiusKm ?: 0.0), state.params.targetCount,
-                            )
+                                state.stage.number, state.params.targetCount,
+                            ) + recenteredSuffix(state.recentered)
                         }
                         is PoiSearchState.Done -> with(state.result) {
                             getString(
                                 if (isComplete) R.string.poi_search_done else R.string.poi_search_incomplete,
-                                pois.size, params.targetCount, stage.number, km(radiusKm), requestCount,
-                            ) + "\n" + getString(
-                                R.string.poi_search_radii,
-                                km(params.minRadiusKm), km(params.startRadiusKm), km(params.maxRadiusKm),
+                                pois.size, params.targetCount, stage.number, requestCount,
+                            ) + recenteredSuffix(recentered) + "\n" + getString(
+                                R.string.poi_search_radii, km(params.minRadiusKm), km(params.maxRadiusKm),
                             )
                         }
                         is PoiSearchState.Failed -> getString(R.string.route_poi_query_failed, state.message)
@@ -75,6 +74,9 @@ class PoiListSheet : BottomSheetDialogFragment(R.layout.sheet_poi_list) {
             }
         }
     }
+
+    private fun recenteredSuffix(recentered: Boolean) =
+        if (recentered) getString(R.string.poi_search_recentered) else ""
 
     private fun km(value: Double) = String.format(Locale.getDefault(), "%.1f", value)
 

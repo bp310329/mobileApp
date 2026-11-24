@@ -25,7 +25,7 @@ class RouteViewModel : ViewModel() {
 
     sealed interface PoiSearchState {
         data object Idle : PoiSearchState
-        data class Searching(val params: PoiSearchParams, val stage: PoiSearchStage?, val radiusKm: Double?) :
+        data class Searching(val params: PoiSearchParams, val stage: PoiSearchStage?, val recentered: Boolean) :
             PoiSearchState
         data class Done(val result: PoiSearchResult, val originLatitude: Double, val originLongitude: Double) :
             PoiSearchState
@@ -42,14 +42,14 @@ class RouteViewModel : ViewModel() {
     fun searchPois(settings: RouteSettings, latitude: Double, longitude: Double) {
         searchJob?.cancel()
         val params = PoiSearchParams.from(settings.lengthKm, settings.poiCount)
-        _poiSearch.value = PoiSearchState.Searching(params, stage = null, radiusKm = null)
+        _poiSearch.value = PoiSearchState.Searching(params, stage = null, recentered = false)
         searchJob = viewModelScope.launch {
             _poiSearch.value = try {
-                val result = searcher.search(latitude, longitude, params) { stage, radiusKm ->
-                    _poiSearch.value = PoiSearchState.Searching(params, stage, radiusKm)
+                val result = searcher.search(latitude, longitude, params) { stage, recentered ->
+                    _poiSearch.value = PoiSearchState.Searching(params, stage, recentered)
                 }
                 Log.d(TAG, "POI search for $settings: ${result.pois.size}/${params.targetCount}, " +
-                    "stage ${result.stage.number}, ${result.radiusKm} km, ${result.requestCount} queries")
+                    "stage ${result.stage.number}, recentered ${result.recentered}, ${result.requestCount} queries")
                 PoiSearchState.Done(result, latitude, longitude)
             } catch (e: PoiQueryException) {
                 Log.w(TAG, "POI search failed", e)
